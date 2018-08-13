@@ -1,0 +1,199 @@
+---
+title: "HousePrices"
+author: "Justin Robinette"
+date: "August 11, 2018"
+output: word_document
+---
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(randomForest)
+```
+
+```{r}
+# loaded the train and test files for the competition
+train.dat <- read.csv("train.csv", stringsAsFactors = FALSE)
+test.dat <- read.csv("test.csv", stringsAsFactors = FALSE)
+
+# added a column for the Source to each file before combining
+train.dat$Source <- "Train"
+test.dat$Source <- "Test"
+nrow(test.dat)
+# combined the two files
+combined.dat <- bind_rows(train.dat, test.dat)
+```
+
+```{r}
+# find NA values
+which(colSums(sapply(combined.dat, is.na))!=0)
+```
+
+```{r}
+# replace MSZoning 'NA' values with most common value
+aggregate(data.frame(count = combined.dat$MSZoning), list(value = combined.dat$MSZoning), length)
+combined.dat$MSZoning[is.na(combined.dat$MSZoning)] <- "RL"
+
+# replace LotFrontage 'NA' values with the average 
+combined.dat$LotFrontage[is.na(combined.dat$LotFrontage)] <- mean(combined.dat$LotFrontage, na.rm = TRUE)
+
+# replace Alley 'NA' with 'None'
+combined.dat$Alley[is.na(combined.dat$Alley)] <- "No Alley"
+
+# replace Utilities 'NA' values with most common value
+aggregate(data.frame(count = combined.dat$Utilities), list(value = combined.dat$Utilities), length)
+combined.dat$Utilities[is.na(combined.dat$Utilities)] <- "AllPub"
+
+# replace Exterior1st 'NA' with most common value
+aggregate(data.frame(count = combined.dat$Exterior1st), list(value = combined.dat$Exterior1st), length)
+combined.dat$Exterior1st[is.na(combined.dat$Exterior1st)] <- "VinylSd"
+
+# replace Exterior2nd 'NA' with most common value
+aggregate(data.frame(count = combined.dat$Exterior2nd), list(value = combined.dat$Exterior2nd), length)
+combined.dat$Exterior2nd[is.na(combined.dat$Exterior2nd)] <- "VinylSd"
+
+# replace MasVnrType & MasVnrArea 'NA' with 'None' and '0'
+combined.dat$MasVnrType[is.na(combined.dat$MasVnrType)] <- "None"
+combined.dat$MasVnrArea[is.na(combined.dat$MasVnrArea)] <- 0
+
+# replacing all 'Basement' columns 'NA' values
+for(i in c('BsmtQual', 'BsmtCond','BsmtExposure','BsmtFinType1', 'BsmtFinType2')){
+  combined.dat[i][is.na(combined.dat[i])] <- "No Basement"
+}
+for(i in c('BsmtFinSF1','BsmtFinSF2','BsmtUnfSF','TotalBsmtSF','BsmtFullBath',
+           'BsmtHalfBath')){
+  combined.dat[i][is.na(combined.dat[i])] <- 0
+}
+
+# replace Electrical 'NA' with most common value
+aggregate(data.frame(count = combined.dat$Electrical), list(value = combined.dat$Electrical), length)
+combined.dat$Electrical[is.na(combined.dat$Electrical)] <- "SBrkr"
+
+# replace KitchenQual 'NA' with most common value
+aggregate(data.frame(count = combined.dat$KitchenQual), list(value = combined.dat$KitchenQual), length)
+combined.dat$KitchenQual[is.na(combined.dat$KitchenQual)] <- "TA"
+
+# replace Functional 'NA' with most common value
+aggregate(data.frame(count = combined.dat$Functional), list(value = combined.dat$Functional), length)
+combined.dat$Functional[is.na(combined.dat$Functional)] <- "Typ"
+
+# replace FireplaceQu 'NA' to "No Fireplace" if Fireplaces is 0
+for (i in 1:nrow(combined.dat)) {
+  if (combined.dat$Fireplaces[i] == 0) {
+    combined.dat$FireplaceQu[i] <- "No Fireplace"
+  }
+}
+
+# replace garage columns if 'NA'
+for(i in c('GarageType', 'GarageFinish','GarageQual','GarageCond')){
+  combined.dat[i][is.na(combined.dat[i])] <- "No Garage"
+}
+for(i in c('GarageYrBlt','GarageCars','GarageArea')){
+  combined.dat[i][is.na(combined.dat[i])] <- 0
+}
+
+# replace PoolQC, Fence and MiscFeature 'NA' values with 'None'
+combined.dat$PoolQC[is.na(combined.dat$PoolQC)] <- "None"
+combined.dat$Fence[is.na(combined.dat$Fence)] <- "None"
+combined.dat$MiscFeature[is.na(combined.dat$MiscFeature)] <- "None"
+
+# checking to see if any of the 'Test' data has missing SaleType value - there is 1 
+# replacing with most common SaleType value
+subset(combined.dat, is.na(SaleType) & is.na(SalePrice))
+aggregate(data.frame(count = combined.dat$SaleType), list(value = combined.dat$SaleType), length)
+combined.dat$SaleType[c(2490)] <- "WD"
+```
+
+```{r}
+# change characters to factors
+combined.dat <- combined.dat %>% mutate_if(is.character, as.factor)
+```
+
+```{r}
+# for highly skewed numeric values, transform with log(x+1)
+combined.dat$LotArea <- log(combined.dat$LotArea + 1)
+combined.dat$X1stFlrSF <- log(combined.dat$X1stFlrSF + 1)
+combined.dat$X2ndFlrSF <- log(combined.dat$X2ndFlrSF + 1)
+combined.dat$GarageArea <- log(combined.dat$GarageArea + 1)
+combined.dat$WoodDeckSF <- log(combined.dat$WoodDeckSF + 1)
+combined.dat$OpenPorchSF <- log(combined.dat$OpenPorchSF + 1)
+combined.dat$EnclosedPorch <- log(combined.dat$EnclosedPorch + 1)
+combined.dat$X3SsnPorch <- log(combined.dat$X3SsnPorch + 1)
+combined.dat$ScreenPorch <- log(combined.dat$ScreenPorch + 1)
+```
+
+```{r}
+# create total sqft and home sqft variables
+combined.dat$TotalSqFt <- log((combined.dat$X1stFlrSF + combined.dat$X2ndFlrSF) + 1)
+combined.dat$HomeSqFt <- log((combined.dat$TotalSqFt + combined.dat$BsmtFinSF1 + combined.dat$BsmtFinSF2) + 1)
+```
+
+```{r}
+# add quality score
+combined.dat$QualityScore <- (combined.dat$OverallQual * combined.dat$OverallCond)
+```
+
+```{r}
+# create a seasonal category since Real Estate is seasonal
+combined.dat$SoldQTR[combined.dat$MoSold == 1 | combined.dat$MoSold == 2 | combined.dat$MoSold == 3] <- 1
+combined.dat$SoldQTR[combined.dat$MoSold == 4 | combined.dat$MoSold == 5 | combined.dat$MoSold == 6] <- 2
+combined.dat$SoldQTR[combined.dat$MoSold == 7 | combined.dat$MoSold == 8 | combined.dat$MoSold == 9] <- 3
+combined.dat$SoldQTR[combined.dat$MoSold == 10 | combined.dat$MoSold == 11 | combined.dat$MoSold == 12] <- 4
+```
+
+```{r}
+# account for recent remodels
+combined.dat$RecentRemodel <- as.factor(ifelse(combined.dat$YrSold-combined.dat$YearRemodAdd > 0 & combined.dat$YrSold - combined.dat$YearRemodAdd <= 10, 1, 0))
+```
+
+```{r}
+combined.dat %>%
+  group_by(Neighborhood) %>%
+  dplyr::summarize(Mean = mean(SalePrice, na.rm = TRUE))
+
+# create variable for top 20% neighborhood
+combined.dat$Top20Neighborhood <- as.factor(ifelse(combined.dat$Neighborhood == 'NoRidge' | combined.dat$Neighborhood == 'NridgHt' | combined.dat$Neighborhood == 'StoneBr', 1, 0))
+```
+
+```{r}
+# split combined.dat back into train.dat and test.dat
+train.dat <- combined.dat[combined.dat$Source == "Train", ]
+test.dat <- combined.dat[combined.dat$Source == "Test", ]
+```
+
+```{r}
+set.seed(621)
+
+# used randomForest to compare prediction based on my factors vs. actual sale price 
+random.rf <- randomForest(SalePrice ~ ., data = train.dat)
+random.rf
+plot(random.rf)
+```
+
+```{r}
+# determine the importance of each factor
+varImpPlot(random.rf, n.var = 20)
+```
+
+
+```{r}
+# set prediction using the predict function
+prediction <- predict(random.rf, test.dat)
+
+# prediction as a data frame (solution)
+solution <- data.frame(Id = test.dat$Id, SalePrice = prediction)
+
+# wrote file to csv for submission
+write.csv(solution, file = 'test_solution.csv', row.names = F)
+```
+
+
+
+
+
+
+
+
+
+
