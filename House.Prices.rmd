@@ -157,6 +157,14 @@ combined.dat$Top20Neighborhood <- as.factor(ifelse(combined.dat$Neighborhood == 
 ```
 
 ```{r}
+head(combined.dat)
+
+# create variable for garages
+combined.dat$FinishedGarage <- as.factor(ifelse(combined.dat$GarageFinish == 'Fin' | combined.dat$GarageFinish == 'RFn', 1, 0))
+combined.dat$NiceGarage <- as.factor(ifelse(combined.dat$GarageType == 'Attchd' & combined.dat$FinishedGarage == 1 & combined.dat$GarageCars >= 2, 1, 0))
+```
+
+```{r}
 # split combined.dat back into train.dat and test.dat
 train.dat <- combined.dat[combined.dat$Source == "Train", ]
 test.dat <- combined.dat[combined.dat$Source == "Test", ]
