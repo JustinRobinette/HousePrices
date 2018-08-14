@@ -1,2 +1,2 @@
 # HousePrices
-Predict home sale prices - Kaggle Competition
+Kaggle Competition predicting home sale prices
