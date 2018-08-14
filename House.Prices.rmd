@@ -20,7 +20,7 @@ test.dat <- read.csv("test.csv", stringsAsFactors = FALSE)
 # added a column for the Source to each file before combining
 train.dat$Source <- "Train"
 test.dat$Source <- "Test"
-nrow(test.dat)
+
 # combined the two files
 combined.dat <- bind_rows(train.dat, test.dat)
 ```
